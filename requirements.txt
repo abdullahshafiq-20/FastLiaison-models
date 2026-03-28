@@ -29,7 +29,6 @@ joblib
 accelerate>=0.26.0
 tqdm
 
-# NLP / LLM
 transformers
 datasets
 sentence-transformers
@@ -40,3 +39,6 @@ openai
 openai-whisper
 pdfplumber
 python-dotenv
+hf_xet
+langchain_google_genai
+
