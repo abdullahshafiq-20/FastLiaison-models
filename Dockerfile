@@ -74,20 +74,6 @@ RUN pip install --no-cache-dir \
     "pillow" \
     "scipy"
 
-RUN python3 -c "
-import cv2, mediapipe as mp
-print('OpenCV:', cv2.__version__)
-print('MediaPipe:', mp.__version__)
-fm = mp.solutions.face_mesh.FaceMesh(
-    max_num_faces=1,
-    refine_landmarks=False,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
-)
-fm.close()
-print('FaceMesh: OK')
-"   
-
 # ── Transformers / NLP
 RUN pip install --no-cache-dir \
     "transformers>=4.35.0" \
