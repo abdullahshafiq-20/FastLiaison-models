@@ -1,0 +1,61 @@
+# ── Python bytecode ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Git ───────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── IDE / OS metadata ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Local environment / secrets ───────────────────────────────
+# NEVER bake .env into an image
+.env
+.env.*
+!.env.example
+
+# ── Model cache (populated at runtime via Docker volume) ──────
+model_cache/
+
+# ── Temporary video/audio files created by MMIA ───────────────
+_tmp_video_*
+_tmp_audio_*
+*.tmp
+
+# ── Large generated data files ────────────────────────────────
+models/explainable-ai-recommendations/enhanced_demo_data.json
+models/explainable-ai-recommendations/enhanced_demo_data.sql
+models/explainable-ai-recommendations/enhanced_training_data.csv
+
+# ── Chatbot conversation history (runtime state, not source) ──
+models/ai-mentor-chatbot/conversations.json
+
+# ── Jupyter ───────────────────────────────────────────────────
+*.ipynb
+.ipynb_checkpoints/
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Node (if any frontend exists) ────────────────────────────
+node_modules/
+
+# ── Docker files themselves (not needed inside the image) ─────
+docker-compose*.yml

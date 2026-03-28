@@ -1,0 +1,101 @@
+# ============================================================
+# docker-compose.yml — Production on DigitalOcean Droplet
+# Usage:
+#   docker compose up -d --build    ← first deploy
+#   docker compose up -d            ← subsequent starts
+#   docker compose logs -f          ← tail logs
+#   docker compose down             ← stop
+# ============================================================
+
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fastliaison-gateway:latest
+    container_name: fastliaison-gateway
+
+    # ── Port mapping ─────────────────────────────────────────
+    # Nginx (below) handles 80/443 → forwards to 8001 internally
+    # Do NOT expose 8001 publicly — only via nginx
+    expose:
+      - "8001"
+
+    # ── Environment variables ─────────────────────────────────
+    # All secrets come from the .env file on the Droplet.
+    # Never hardcode keys here.
+    env_file:
+      - .env
+    environment:
+      - CUDA_VISIBLE_DEVICES=
+      - PYTHONUNBUFFERED=1
+      - TOKENIZERS_PARALLELISM=false
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      - GLOG_minloglevel=2
+      - HF_HOME=/app/model_cache/huggingface
+      - TRANSFORMERS_CACHE=/app/model_cache/huggingface
+      - XDG_CACHE_HOME=/app/model_cache
+
+    # ── Volumes ───────────────────────────────────────────────
+    volumes:
+      # Persists HuggingFace + Whisper model downloads.
+      # Without this, every restart re-downloads ~2GB of models.
+      - model_cache:/app/model_cache
+
+    # ── Resource limits ───────────────────────────────────────
+    # Adjust to your Droplet size:
+    #   8GB  Droplet → mem_limit: 7g
+    #   16GB Droplet → mem_limit: 14g
+    deploy:
+      resources:
+        limits:
+          memory: 14g
+        reservations:
+          memory: 4g
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 180s
+
+    # ── Networks ──────────────────────────────────────────────
+    networks:
+      - fastliaison-net
+
+  # ── Nginx reverse proxy ─────────────────────────────────────
+  # Handles HTTPS (via Certbot), rate limiting, and forwards
+  # traffic to the gateway container on the internal network.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: fastliaison-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      # Certbot will write here for Let's Encrypt
+      - certbot_webroot:/var/www/certbot:ro
+    depends_on:
+      - gateway
+    restart: unless-stopped
+    networks:
+      - fastliaison-net
+
+# ── Named volumes ─────────────────────────────────────────────
+volumes:
+  model_cache:
+    driver: local
+  certbot_webroot:
+    driver: local
+
+# ── Internal network ──────────────────────────────────────────
+networks:
+  fastliaison-net:
+    driver: bridge
