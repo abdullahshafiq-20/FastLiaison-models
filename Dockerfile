@@ -47,7 +47,7 @@ RUN pip install --no-cache-dir \
 # ── Video / Audio / ML packages
 RUN pip install --no-cache-dir \
     opencv-python-headless \
-    mediapipe \
+    mediapipe==0.10.13 \
     openai-whisper \
     librosa \
     moviepy \

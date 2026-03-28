@@ -14,7 +14,7 @@ markdown
 # Computer Vision / Media
 opencv-python
 Pillow
-mediapipe
+mediapipe==0.10.13
 moviepy==1.0.3
 imageio-ffmpeg
 librosa
