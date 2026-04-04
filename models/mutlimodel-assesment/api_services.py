@@ -4,6 +4,7 @@ Processes uploaded MP4 videos and returns comprehensive emotion insights
 """
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
@@ -36,6 +37,10 @@ from utils.emotion_predictor import EmotionPredictor
 from config.config import EMOTION_LABELS
 
 
+face_detector = None
+emotion_predictor = None
+whisper_model = None
+
 # Pydantic models for responses
 class EmotionFrame(BaseModel):
     timestamp: float
@@ -59,38 +64,7 @@ class VideoInsights(BaseModel):
     transcription: Optional[Dict] = None
     processing_time: float
 
-
-# Initialize FastAPI app
-app = FastAPI(
-    title="MMIA Video Emotion Recognition API",
-    description="Analyze emotions in video files and transcribe audio",
-    version="1.0.0"
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.on_event("startup")
-async def load_models_on_startup():
-    """Load Whisper model at application startup"""
-    global whisper_model
-    logger.info("Loading Whisper model on startup...")
-    try:
-        whisper_model = whisper.load_model("base")
-        logger.info("✓ Whisper model loaded successfully at startup")
-    except Exception as e:
-        logger.error(f"Failed to load Whisper model: {e}", exc_info=True)
-        raise
-
-
-# Global model instances
+# Global model instances (lazy loading)
 face_detector = None
 emotion_predictor = None
 whisper_model = None
@@ -115,9 +89,49 @@ def get_emotion_predictor():
 
 
 def get_whisper_model():
-    """Get Whisper model (pre-loaded at startup)"""
+    """Lazy load Whisper model for transcription"""
     global whisper_model
+    if whisper_model is None:
+        logger.info("Loading Whisper model...")
+        # Use base model for balance of speed and accuracy
+        whisper_model = whisper.load_model("base")
+        logger.info("Whisper model loaded")
     return whisper_model
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Pre-load all models once at startup.
+    All three are held in globals and reused across every request.
+    """
+    logger.info("=== STARTUP: Pre-loading all models ===")
+    get_face_detector()
+    get_emotion_predictor()
+    get_whisper_model()
+    logger.info("=== STARTUP: All models ready ===")
+    yield
+    # Shutdown cleanup (optional)
+    logger.info("=== SHUTDOWN: Releasing resources ===")
+
+
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="MMIA Video Emotion Recognition API",
+    description="Analyze emotions in video files and transcribe audio",
+    version="1.0.0",
+    lifespan=lifespan          # <-- wire the lifespan in
+
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def extract_audio_from_video(video_path: str, audio_path: str) -> bool:
