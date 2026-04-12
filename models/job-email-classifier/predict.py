@@ -1,7 +1,10 @@
 import torch
 from transformers import BertTokenizer, BertForSequenceClassification
 import warnings
+import logging
 warnings.filterwarnings('ignore')
+
+logger = logging.getLogger(__name__)
 
 class EmailClassifier:
     """
@@ -51,43 +54,56 @@ class EmailClassifier:
         Returns:
             dict: Dictionary containing prediction, confidence, and probabilities
         """
-        # Tokenize input
-        encoding = self.tokenizer.encode_plus(
-            text,
-            add_special_tokens=True,
-            max_length=self.max_length,
-            padding='max_length',
-            truncation=True,
-            return_attention_mask=True,
-            return_tensors='pt'
-        )
-        
-        input_ids = encoding['input_ids'].to(self.device)
-        attention_mask = encoding['attention_mask'].to(self.device)
-        
-        # Make prediction
-        with torch.no_grad():
-            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits
-            probabilities = torch.softmax(logits, dim=1)
-            prediction = torch.argmax(probabilities, dim=1).item()
-            confidence = probabilities[0][prediction].item() * 100
-        
-        # Get probabilities for both classes
-        not_job_prob = probabilities[0][0].item() * 100
-        job_prob = probabilities[0][1].item() * 100
-        
-        result = {
-            'prediction': 'job' if prediction == 1 else 'not_job',
-            'confidence': confidence,
-            'probabilities': {
-                'not_job': not_job_prob,
-                'job': job_prob
-            },
-            'label': prediction
-        }
-        
-        return result
+        try:
+            # Tokenize input
+            encoding = self.tokenizer.encode_plus(
+                text,
+                add_special_tokens=True,
+                max_length=self.max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                return_tensors='pt'
+            )
+            
+            input_ids = encoding['input_ids'].to(self.device)
+            attention_mask = encoding['attention_mask'].to(self.device)
+            
+            # Make prediction
+            with torch.no_grad():
+                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+                logits = outputs.logits
+                probabilities = torch.softmax(logits, dim=1)
+                prediction = torch.argmax(probabilities, dim=1).item()
+                confidence = float(probabilities[0][prediction].item() * 100)
+            
+            # Get probabilities for both classes - ensure they're Python floats
+            not_job_prob = float(probabilities[0][0].item() * 100)
+            job_prob = float(probabilities[0][1].item() * 100)
+            
+            # Clamp confidence values to ensure they're within [0, 100] due to floating point precision
+            confidence = max(0.0, min(100.0, confidence))
+            not_job_prob = max(0.0, min(100.0, not_job_prob))
+            job_prob = max(0.0, min(100.0, job_prob))
+            
+            # Ensure prediction is a Python int
+            prediction_int = int(prediction)
+            
+            result = {
+                'prediction': 'job' if prediction_int == 1 else 'not_job',
+                'confidence': confidence,
+                'probabilities': {
+                    'not_job': not_job_prob,
+                    'job': job_prob
+                },
+                'label': prediction_int
+            }
+            
+            logger.debug(f"Prediction result: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Error during prediction: {str(e)}", exc_info=True)
+            raise
     
     def predict_batch(self, texts):
         """

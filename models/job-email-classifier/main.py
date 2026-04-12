@@ -1,17 +1,32 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from pathlib import Path
 import warnings
+import logging
 warnings.filterwarnings('ignore')
 
 from predict import EmailClassifier
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Job Email Classifier Service",
     description="BERT-based email classifier to identify job-related emails",
     version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Get the directory where this file is located
@@ -84,23 +99,31 @@ async def predict_email(request: EmailRequest):
     Classify an email as job-related or not job-related using BERT model.
     """
     try:
+        logger.info(f"Received prediction request with email length: {len(request.email)}")
+        
         # Get classifier instance
         model = get_classifier()
+        logger.info("Classifier loaded successfully")
         
         # Make prediction
         result = model.predict(request.email)
+        logger.info(f"Prediction completed: {result}")
         
         # Add human-readable label_text
         # label 1 => "relevant", label 0 => "not relevant"
         label_value = result.get("label")
         result["label_text"] = "relevant" if label_value == 1 else "irrelevant"
         
-        return EmailPredictionResponse(**result)
+        logger.info(f"Creating response with result: {result}")
+        response = EmailPredictionResponse(**result)
+        logger.info("Response created successfully")
+        return response
         
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
+        logger.error(f"Error during prediction: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error during prediction: {str(e)}"
