@@ -1,4 +1,5 @@
 from datetime import datetime
+from semantic_skill_matcher import SkillMatcher, PROFICIENCY_MAP, proficiency_multiplier
 
 class ExplainableJobMatcher:
 
@@ -71,40 +72,70 @@ class ExplainableJobMatcher:
 
     def score_skills(self):
         """
-        Score skills match with detailed breakdown
+        Score skills match with detailed breakdown using semantic matching.
+        Uses all-MiniLM-L6-v2 embeddings for intelligent skill matching.
         """
         required_skills = self.get_job_required_skills()
         student_skills = self.get_student_skills()
+
+        # Extract skill names from student skills for semantic matching
+        student_skill_names = [s['skill_name'] for s in student_skills]
+        
+        # Initialize semantic matcher with student's skills
+        matcher = SkillMatcher(student_skill_names, threshold=0.40)
 
         matched_skills = []
         missing_skills = []
         proficiency_matches = []
 
+        # Try semantic matching for each required skill
         for req_skill in required_skills:
-            student_skill = next(
-                (s for s in student_skills if str(s['skill_id']).lower() == str(req_skill['skill_id']).lower()),
-                None
-            )
-
-            if student_skill:
-                proficiency_match = self.compare_proficiency(
-                    student_skill['proficiency_level'],
-                    req_skill['required_level']
+            req_skill_name = req_skill['skill_name']
+            
+            # Attempt semantic match
+            matched_skill_name, similarity_score = matcher.best_match(req_skill_name)
+            
+            if matched_skill_name is not None:
+                # Find the full student skill object
+                student_skill = next(
+                    (s for s in student_skills if s['skill_name'].lower() == matched_skill_name.lower()),
+                    None
                 )
-                matched_skills.append({
-                    'name': req_skill['name'],
-                    'required_level': req_skill['required_level'],
-                    'student_level': student_skill['proficiency_level'],
-                    'proficiency_match': proficiency_match,
-                    'is_verified': student_skill['is_verified'],
-                    'weight': req_skill['weight']
-                })
-                proficiency_matches.append(proficiency_match)
+                
+                if student_skill:
+                    # Get proficiency levels
+                    candidate_prof_level = PROFICIENCY_MAP.get(
+                        student_skill['proficiency_level'], 1
+                    )
+                    required_prof_level = PROFICIENCY_MAP.get(
+                        req_skill['required_level'], 1
+                    )
+                    
+                    # Calculate proficiency match with semantic similarity boost
+                    proficiency_mult = proficiency_multiplier(
+                        candidate_prof_level, required_prof_level
+                    )
+                    # Boost credit based on semantic similarity (caps at 1.0)
+                    proficiency_match = min(1.0, proficiency_mult * similarity_score)
+                    
+                    matched_skills.append({
+                        'name': req_skill['name'],
+                        'matched_to': matched_skill_name,
+                        'required_level': req_skill['required_level'],
+                        'student_level': student_skill['proficiency_level'],
+                        'proficiency_match': proficiency_match,
+                        'semantic_similarity': round(similarity_score, 3),
+                        'is_verified': student_skill.get('is_verified', False),
+                        'weight': req_skill['weight']
+                    })
+                    proficiency_matches.append(proficiency_match)
             else:
+                # Skill not matched semantically
                 missing_skills.append({
                     'name': req_skill['name'],
                     'required_level': req_skill['required_level'],
-                    'is_mandatory': req_skill['is_mandatory']
+                    'is_mandatory': req_skill['is_mandatory'],
+                    'best_similarity': similarity_score  # Show closest match score
                 })
 
         # Calculate score
@@ -119,8 +150,9 @@ class ExplainableJobMatcher:
             'score': round(score, 2),
             'matched_skills': matched_skills,
             'missing_skills': missing_skills,
-            'match_percentage': len(matched_skills) / len(required_skills) * 100,
-            'avg_proficiency_match': sum(proficiency_matches) / len(proficiency_matches) if proficiency_matches else 0
+            'match_percentage': len(matched_skills) / len(required_skills) * 100 if required_skills else 0,
+            'avg_proficiency_match': sum(proficiency_matches) / len(proficiency_matches) if proficiency_matches else 0,
+            'semantic_matching_enabled': True
         }
 
     def score_education(self):

@@ -2,11 +2,20 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+import threading
 
 from xai import ExplainableJobMatcher
 from model_usage import JobMatcherWithFeedback
 from model import (EnhancedMLModelTrainer, EnhancedFeatureEngineering,
                    EnhancedMLModelTrainerWithFeedback, HumanizedFeedbackGenerator)
+
+# Import model getter but catch import errors
+try:
+    from semantic_skill_matcher import _get_model
+    SEMANTIC_MATCHER_AVAILABLE = True
+except ImportError as e:
+    print(f"[Warning] Could not import semantic_skill_matcher: {e}")
+    SEMANTIC_MATCHER_AVAILABLE = False
 
 
 app = FastAPI(
@@ -14,6 +23,35 @@ app = FastAPI(
     description="AI-powered job matching with detailed explanations",
     version="1.0.0"
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Startup Event - Load Semantic Skill Matcher Model
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def load_skill_matcher_model():
+    """
+    Load the all-MiniLM-L6-v2 model on server startup (background thread).
+    Non-blocking to prevent gateway startup delay.
+    """
+    def load_model_background():
+        if not SEMANTIC_MATCHER_AVAILABLE:
+            print("[Server] ⚠️  Semantic matcher not available - will use exact matching")
+            return
+        
+        try:
+            print("[Server] Loading semantic skill matcher model (background)...")
+            _get_model()
+            print("[Server] ✅ Semantic skill matcher model loaded successfully!")
+        except Exception as e:
+            print(f"[Server] ⚠️  Warning: Failed to load skill matcher model: {str(e)}")
+            print(f"[Server] ⚠️  Error type: {type(e).__name__}")
+            print("[Server] ⚠️  Model will be loaded on first request")
+    
+    # Load in background thread to prevent startup blocking
+    thread = threading.Thread(target=load_model_background, daemon=True)
+    thread.start()
 
 # Pydantic Models for Request/Response
 

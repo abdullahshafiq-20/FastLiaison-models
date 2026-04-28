@@ -8,6 +8,15 @@ import numpy as np
 import sys
 from typing import Dict, List, Optional
 from datetime import datetime
+
+# Import semantic skill matcher with fallback
+try:
+    from semantic_skill_matcher import SkillMatcher, PROFICIENCY_MAP, proficiency_multiplier
+    SEMANTIC_MATCHER_AVAILABLE = True
+except ImportError as e:
+    print(f"[Warning] Semantic skill matcher not available: {e}")
+    SEMANTIC_MATCHER_AVAILABLE = False
+
 # Import the model class and feedback generator
 from model import (EnhancedMLModelTrainer, EnhancedFeatureEngineering,
                    EnhancedMLModelTrainerWithFeedback, HumanizedFeedbackGenerator)
@@ -403,7 +412,7 @@ class JobMatcherWithFeedback:
         return features
 
     def _score_skills(self, student_skills: Dict, required_skills: List[Dict]) -> Dict:
-        """Score skills match"""
+        """Score skills match with semantic matching support"""
         if not required_skills:
             return {'score': 100, 'matched_count': 0, 'missing_count': 0, 'mandatory_missing': 0}
 
@@ -413,26 +422,63 @@ class JobMatcherWithFeedback:
         total_weight = sum(s.get('weight', 1.0) for s in required_skills)
         matched_weight = 0
 
-        proficiency_levels = {'Beginner': 1, 'Intermediate': 2, 'Advanced': 3, 'Expert': 4}
+        # Initialize semantic matcher with student's skill names
+        student_skill_names = list(student_skills.keys())
+        print(f"\n[SkillMatching] Student skills: {student_skill_names}")
+        print(f"[SkillMatching] Required skills count: {len(required_skills)}")
+        
+        matcher = None
+        if SEMANTIC_MATCHER_AVAILABLE and student_skill_names:
+            try:
+                matcher = SkillMatcher(student_skill_names, threshold=0.25)
+                print(f"[SkillMatching] ✓ Semantic matcher initialized with {len(student_skill_names)} student skills (threshold=0.25)")
+            except Exception as e:
+                print(f"[SkillMatching] ✗ Failed to initialize semantic matcher: {e}")
+                matcher = None
+        else:
+            print(f"[SkillMatching] Matcher not available. SEMANTIC_MATCHER_AVAILABLE={SEMANTIC_MATCHER_AVAILABLE}, skills_count={len(student_skill_names)}")
 
-        for req_skill in required_skills:
-            skill_name = req_skill['skill_name']
+        for idx, req_skill in enumerate(required_skills, 1):
+            req_skill_name = req_skill['skill_name']
             required_level = req_skill.get('required_level', 'Intermediate')
             is_mandatory = req_skill.get('is_mandatory', False)
             weight = req_skill.get('weight', 1.0)
 
-            if skill_name in student_skills:
-                student_level = student_skills[skill_name]
+            # Try exact match first, then semantic match
+            matched_skill_name = None
+            similarity_score = 1.0
+            match_type = 'none'
+            
+            if req_skill_name in student_skills:
+                matched_skill_name = req_skill_name
+                match_type = 'exact'
+                print(f"  [{idx:2d}] '{req_skill_name}' → EXACT MATCH")
+            elif matcher:
+                # Try semantic match if exact match fails
+                try:
+                    matched_skill_name, similarity_score = matcher.best_match(req_skill_name)
+                    if matched_skill_name:
+                        match_type = f'semantic({similarity_score:.3f})'
+                        print(f"  [{idx:2d}] '{req_skill_name}' → '{matched_skill_name}' (sim: {similarity_score:.3f}) ✓")
+                    else:
+                        print(f"  [{idx:2d}] '{req_skill_name}' → best: {similarity_score:.3f} (below 0.25 threshold)")
+                except Exception as e:
+                    print(f"  [{idx:2d}] '{req_skill_name}' → ERROR: {e}")
+                    matched_skill_name = None
+            else:
+                print(f"  [{idx:2d}] '{req_skill_name}' → MATCHER NOT AVAILABLE")
 
-                student_num = proficiency_levels.get(student_level, 0)
-                required_num = proficiency_levels.get(required_level, 0)
+            if matched_skill_name:
+                student_level = student_skills[matched_skill_name]
 
-                if student_num >= required_num:
-                    proficiency_match = 1.0
-                elif student_num == required_num - 1:
-                    proficiency_match = 0.7
-                else:
-                    proficiency_match = 0.3
+                # Get proficiency levels
+                candidate_prof_level = PROFICIENCY_MAP.get(student_level, 1)
+                required_prof_level = PROFICIENCY_MAP.get(required_level, 1)
+
+                # Calculate proficiency match with similarity boost
+                proficiency_mult = proficiency_multiplier(candidate_prof_level, required_prof_level)
+                proficiency_match = min(1.0, proficiency_mult * similarity_score)
+                print(f"       cand_level={student_level}({candidate_prof_level}) vs req_level={required_level}({required_prof_level}) → {proficiency_match:.3f}")
 
                 matched_weight += weight * proficiency_match
                 matched_count += 1
